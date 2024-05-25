@@ -4,6 +4,7 @@ import aiohttp
 import asyncio
 import warnings
 import pandas as pd
+import numpy as np
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 
@@ -252,17 +253,22 @@ class FundDownloader:
         std_dev_values = date_df_values.std(axis=1)
 
         # 將平均值和標準差添加到 DataFrame 中
-        result_df['平均值'] = average_values
-        result_df['標準差'] = std_dev_values
+        stats_df = pd.DataFrame({
+            '平均值': average_values,
+            '標準差': std_dev_values
+        })
+        
+        # 將原始 DataFrame 與新統計列合併
+        result_df = pd.concat([result_df, stats_df], axis=1)
         
         # 重新排列列順序
-        result_df = result_df[['基金統編', '基金名稱', '風險等級', '計價幣別', '範圍', '配置', '標的', '平均值', '標準差'] + date_columns.tolist()]
-
+        columns_order = ['基金統編', '基金名稱', '風險等級', '計價幣別', '範圍', '配置', '標的', '平均值', '標準差'] + date_columns.tolist()
+        result_df = result_df[columns_order]
+        
         return result_df
 
 
     def run_range(self, start_date, end_date, to_excel=False):
-        start_time = time.time()
         
         date_df = pd.date_range(start_date, end_date, freq='B')
         print(f'總請求筆數: {len(date_df)}筆')
@@ -291,17 +297,7 @@ class FundDownloader:
         return result_df
 
 
-    def missing_data(self, file_name, start_date, end_date):
-        start_time = time.time()
-        # 讀取 Excel 文件
-        try:
-            result_df = pd.read_excel(f'{file_name}.xlsx')
-        except FileNotFoundError:
-            print(f'找不到{file_name}.xlsx')
-            return
-        
-        result_df = result_df.drop(columns=["平均值","標準差"])
-        print(f'result_df:\n{result_df}')
+    def missing_list(self, result_df, start_date, end_date):
         # 生成日期範圍
         date_list = pd.Series(pd.date_range(start_date, end_date, freq='B'))
         data_index = pd.Series(result_df.iloc[:, 9:].columns)
@@ -312,7 +308,22 @@ class FundDownloader:
         missing_dates = date_list[~date_list.isin(data_index)]
         print(f'總請求筆數: {len(missing_dates)}筆')
         print(f"缺失日期:\n{missing_dates}")
+    
+        return missing_dates
 
+
+    def missing_data(self, file_name, start_date, end_date):
+        start_time = time.time()
+        # 讀取 Excel 文件
+        try:
+            result_df = pd.read_excel(f'{file_name}.xlsx')
+            result_df = result_df.drop(columns=["平均值","標準差"])
+        except FileNotFoundError:
+            print(f'找不到{file_name}.xlsx')
+            return
+
+        missing_dates = self.missing_list(result_df, start_date, end_date)
+        
         if missing_dates.empty:
             print("所有日期都已經存在於 DataFrame 中。")
             return result_df
@@ -345,12 +356,12 @@ if __name__ == "__main__":
     start_date = "20230520"
     end_date = "20240520"
     #result_df = fond_downloader.run_range(start_date, end_date, to_excel=True)
-    #print(result_df)
+    #print(result_df.info())
 
-    
+
     file_name = f"{start_date}-{end_date}基金資料"
     result_df = fond_downloader.missing_data(file_name, start_date, end_date)
-    print(result_df)
+    print(result_df.info())
 
 
 
