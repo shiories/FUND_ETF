@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 class FundDownloader:
 
-    def __init__(self, company):
+    def __init__(self, company=""):
         warnings.filterwarnings("ignore", message="Unverified HTTPS request")
         self.company = company
 
@@ -275,6 +275,22 @@ class FundDownloader:
         return result_df
 
 
+    def merge_df(self, result_df, new_data):
+        merge_columns = ['基金統編', '基金名稱', '風險等級', '計價幣別', '範圍', '配置', '標的']
+        result_df = pd.merge(result_df, new_data, on=merge_columns, how="outer")
+        # 找到包含 "_x" 或 "_y" 的列标题
+        columns_to_drop = [col for col in result_df.columns if '_x' in col or '_y' in col]
+        # 删除这些列
+        result_df.drop(columns=columns_to_drop, inplace=True)
+
+        # 重新排列
+        sorted_columns = merge_columns + sorted(set(result_df.columns) - set(merge_columns))
+
+        result_df = result_df[sorted_columns]
+        
+        return result_df
+
+
     def missing_data(self, file_name, start_date, end_date):
         start_time = time.time()
         # 讀取 Excel 文件
@@ -289,37 +305,21 @@ class FundDownloader:
         # 生成日期範圍
         date_list = pd.Series(pd.date_range(start_date, end_date, freq='B'))
         data_index = pd.Series(result_df.iloc[:, 9:].columns)
-        print(f'data_index:\n{data_index}')
-        print(data_index[55:57])
-
         data_index = pd.to_datetime(data_index, format="%Y-%m-%d")
+        print(f'data_index:\n{data_index}')
 
         # 比较检查缺失的日期列
         missing_dates = date_list[~date_list.isin(data_index)]
-
-
         print(f'總請求筆數: {len(missing_dates)}筆')
+        print(f"缺失日期:\n{missing_dates}")
 
         if missing_dates.empty:
             print("所有日期都已經存在於 DataFrame 中。")
             return result_df
 
-        print(f"缺失日期:\n{missing_dates}")
-
         new_data = asyncio.run(self.range_main(missing_dates, self.headers))
-
-        merge_columns = ['基金統編', '基金名稱', '風險等級', '計價幣別', '範圍', '配置', '標的']
-        result_df = pd.merge(result_df, new_data, on=merge_columns, how="outer")
-        # 找到包含 "_x" 或 "_y" 的列标题
-        columns_to_drop = [col for col in result_df.columns if '_x' in col or '_y' in col]
-        # 删除这些列
-        result_df.drop(columns=columns_to_drop, inplace=True)
-
-        # 重新排列
-        sorted_columns = merge_columns + sorted(set(result_df.columns) - set(merge_columns))
-
-        result_df = result_df[sorted_columns]
-
+        
+        result_df = self.merge_df(result_df, new_data)
         result_df = self.get_statistics(result_df)
 
         end_time = time.time()
@@ -344,8 +344,8 @@ if __name__ == "__main__":
 
     start_date = "20230520"
     end_date = "20240520"
-    result_df = fond_downloader.run_range(start_date, end_date, to_excel=True)
-    print(result_df)
+    #result_df = fond_downloader.run_range(start_date, end_date, to_excel=True)
+    #print(result_df)
 
     
     file_name = f"{start_date}-{end_date}基金資料"
