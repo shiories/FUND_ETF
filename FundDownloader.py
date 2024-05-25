@@ -94,10 +94,11 @@ class FundDownloader:
 
     async def fetch_data(self, session, date_str):
         self.post_dict['ctl00$ContentPlaceHolder1$txtQ_Date'] = date_str
-        
+
         try:
             async with session.post(self.data_url, headers=self.headers, data=self.post_dict, verify_ssl=False) as response:
                 response_text = await response.text(encoding='ISO-8859-1')
+                print(f'{date_str}下載完畢')
                 return response_text
             
         except Exception as e:
@@ -108,6 +109,7 @@ class FundDownloader:
             try:
                 async with session.post(self.data_url, headers=self.headers, data=self.post_dict, verify_ssl=False) as response:
                     response_text = await response.text(encoding='ISO-8859-1')
+                    print(f'{date_str}再次嘗試下載')
                     return response_text
             except Exception as e:
                 print(f"無法取得 {date_str} 的資料：{str(e)}")
@@ -194,6 +196,7 @@ class FundDownloader:
                                     })
 
         basic_df = pd.DataFrame(df_list)
+        print(f'基本資料下載完畢')
 
         return basic_df
 
@@ -232,6 +235,7 @@ class FundDownloader:
                 result_df = await self.process_result(date, result_df, result)
         return result_df
 
+
     async def download_data_with_semaphore(self, session, date, semaphore):
         async with semaphore:
             return await self.download_data(session, date)
@@ -246,13 +250,14 @@ class FundDownloader:
         # 計算平均值和標準差
         average_values = date_df_values.mean(axis=1)
         std_dev_values = date_df_values.std(axis=1)
+
         # 將平均值和標準差添加到 DataFrame 中
         result_df['平均值'] = average_values
         result_df['標準差'] = std_dev_values
         
         # 重新排列列順序
         result_df = result_df[['基金統編', '基金名稱', '風險等級', '計價幣別', '範圍', '配置', '標的', '平均值', '標準差'] + date_columns.tolist()]
-        
+
         return result_df
 
 
@@ -278,12 +283,16 @@ class FundDownloader:
         except FileNotFoundError:
             print(f'找不到{file_name}.xlsx')
             return
-
-        # 生成日期范围
+        
+        result_df = result_df.drop(columns=["平均值","標準差"])
+        print(f'result_df:\n{result_df}')
+        # 生成日期範圍
         date_list = pd.Series(pd.date_range(start_date, end_date, freq='B'))
         data_index = pd.Series(result_df.iloc[:, 9:].columns)
-        print(f'date_list:\n{date_list}')
         print(f'data_index:\n{data_index}')
+        print(data_index[55:57])
+
+        data_index = pd.to_datetime(data_index, format="%Y-%m-%d")
 
         # 比较检查缺失的日期列
         missing_dates = date_list[~date_list.isin(data_index)]
@@ -299,18 +308,25 @@ class FundDownloader:
 
         new_data = asyncio.run(self.range_main(missing_dates, self.headers))
 
-        merge_columns = ["基金統編", "基金名稱", "風險等級", "計價幣別", "範圍", "配置", "標的"]
-        result_df = pd.merge(result_df, new_data[merge_columns], on=merge_columns, how="outer")
-        # 重新排列列
+        merge_columns = ['基金統編', '基金名稱', '風險等級', '計價幣別', '範圍', '配置', '標的']
+        result_df = pd.merge(result_df, new_data, on=merge_columns, how="outer")
+        # 找到包含 "_x" 或 "_y" 的列标题
+        columns_to_drop = [col for col in result_df.columns if '_x' in col or '_y' in col]
+        # 删除这些列
+        result_df.drop(columns=columns_to_drop, inplace=True)
+
+        # 重新排列
         sorted_columns = merge_columns + sorted(set(result_df.columns) - set(merge_columns))
+
         result_df = result_df[sorted_columns]
 
+        result_df = self.get_statistics(result_df)
 
         end_time = time.time()
         print(f'下載{start_date}-{end_date}基金耗時:{round(end_time - start_time, 4)}秒')
-        
+
         # 保存到 Excel 文件
-        result_df.to_excel(f"{file_name}.xlsx", index=False)
+        result_df.to_excel(f'{start_date}-{end_date}基金資料.xlsx', index=False)
         print(f"數據已保存到 {file_name}.xlsx")
 
         return result_df
@@ -321,17 +337,19 @@ class FundDownloader:
 
 
 if __name__ == "__main__":
+
     company = ""
-    start_date = "20230430"
-    end_date = "20240513"
-    file_name = "20230430-20240430基金資料"
-
-
     fond_downloader = FundDownloader(company)
-    #result_df = fond_downloader.run_range(start_date, end_date, to_excel=True)
-    
-    result_df = fond_downloader.missing_data(file_name, start_date, end_date)
 
+
+    start_date = "20230520"
+    end_date = "20240520"
+    result_df = fond_downloader.run_range(start_date, end_date, to_excel=True)
+    print(result_df)
+
+    
+    file_name = f"{start_date}-{end_date}基金資料"
+    result_df = fond_downloader.missing_data(file_name, start_date, end_date)
     print(result_df)
 
 
